@@ -1,0 +1,1329 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>DRAW</title>
+  <link rel="icon" href="/favicon.ico" />
+
+  <style>
+    :root{
+      --bg:#000;
+      --text:#fff;
+      --muted:rgba(255,255,255,.72);
+      --border:rgba(255,255,255,.12);
+      --pad-x: 18px;
+      --topbar-real: 38px;
+      --vvh: 100vh;
+      color-scheme: dark;
+    }
+
+    *{ box-sizing:border-box; }
+
+    html,body{
+      height:100%;
+      margin:0;
+      background:var(--bg);
+      color:var(--text);
+      overflow:hidden;
+      touch-action:none;
+    }
+
+    #topbar{
+      position:fixed;
+      inset:0 0 auto 0;
+      display:flex;
+      align-items:center;
+      justify-content:flex-start;
+      gap:12px;
+      padding:0 var(--pad-x);
+      height:38px;
+      background:rgba(0,0,0,.96);
+      border-bottom:1px solid var(--border);
+      font: 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      z-index:5;
+      user-select:none;
+      white-space:nowrap;
+      overflow:hidden;
+    }
+
+    #domainBar, #statsBar, #actionsBar, #toolsBar{
+      display:flex;
+      align-items:center;
+      min-width:0;
+    }
+
+    #domainBar{ flex:0 0 auto; }
+
+    #statsBar{
+      flex:1 1 auto;
+      gap:12px;
+      color:var(--muted);
+      justify-content:center;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    #actionsBar{
+      flex:0 0 auto;
+      gap:8px;
+      justify-content:flex-end;
+    }
+
+    #toolsBar{
+      flex:0 0 auto;
+      gap:10px;
+      justify-content:flex-end;
+    }
+
+    #domainLink{
+      color:var(--text);
+      font-weight:600;
+      letter-spacing:.2px;
+      max-width:45vw;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      text-decoration:none;
+    }
+    #domainLink:hover{
+      text-decoration:underline;
+      text-decoration-color:rgba(255,255,255,.35);
+      text-underline-offset:2px;
+    }
+
+    .miniBtn{
+      background:transparent;
+      color:var(--muted);
+      border:1px solid var(--border);
+      border-radius:8px;
+      padding:4px 8px;
+      font: inherit;
+      cursor:pointer;
+      line-height:1;
+      white-space:nowrap;
+      flex:0 0 auto;
+    }
+    .miniBtn:hover{ background:rgba(255,255,255,.06); }
+    .miniBtn:active{ background:rgba(255,255,255,.10); }
+    .miniBtn:disabled{
+      opacity:.35;
+      cursor:default;
+    }
+
+    #color{
+      width:34px;
+      height:24px;
+      padding:0;
+      border:1px solid var(--border);
+      border-radius:8px;
+      background:#000;
+      flex:0 0 auto;
+    }
+
+    #thickness{
+      width:160px;
+      accent-color:#fff;
+      flex:0 1 auto;
+    }
+
+    #downloadBtn{
+      width:30px;
+      height:30px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      background:#000;
+      color:var(--muted);
+      border:1px solid var(--border);
+      border-radius:8px;
+      cursor:pointer;
+      outline:none;
+      flex:0 0 auto;
+      padding:0;
+    }
+
+    #downloadBtn:hover{
+      background:rgba(255,255,255,.06);
+      color:rgba(255,255,255,.86);
+    }
+
+    #downloadBtn:active{
+      background:rgba(255,255,255,.10);
+    }
+
+    #downloadBtn:focus-visible{
+      border-color:rgba(255,255,255,.30);
+      box-shadow: 0 0 0 3px rgba(255,255,255,.10);
+    }
+
+    #downloadBtn svg{
+      width:16px;
+      height:16px;
+      display:block;
+    }
+
+    #canvasWrap{
+      position:fixed;
+      top:var(--topbar-real);
+      left:0;
+      right:0;
+      height:calc(var(--vvh) - var(--topbar-real));
+      background:var(--bg);
+    }
+
+    canvas{
+      display:block;
+      width:100%;
+      height:100%;
+      touch-action:none;
+      background:var(--bg);
+      cursor:crosshair;
+    }
+
+    @media (max-width: 520px){
+      #topbar{
+        display:grid;
+        grid-template-columns: 1fr auto;
+        grid-template-rows: auto auto;
+        grid-template-areas:
+          "domain actions"
+          "stats  tools";
+        align-items:center;
+        justify-items:stretch;
+        height:auto;
+        padding:8px var(--pad-x);
+        row-gap:6px;
+        white-space:normal;
+        overflow:hidden;
+      }
+
+      #domainBar{ grid-area:domain; justify-content:flex-start; }
+      #actionsBar{ grid-area:actions; justify-content:flex-end; }
+      #statsBar{ grid-area:stats; justify-content:flex-start; }
+      #toolsBar{ grid-area:tools; justify-content:flex-end; }
+
+      #domainLink{ max-width:60vw; }
+      #thickness{ width:clamp(90px, 34vw, 150px); }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="topbar">
+    <div id="domainBar">
+      <a id="domainLink" href="#" title="Open empty canvas (clears URL)"></a>
+    </div>
+
+    <div id="statsBar">
+      <span id="strokes"></span>
+      <span id="points"></span>
+    </div>
+
+    <div id="actionsBar">
+      <button id="undoBtn" class="miniBtn" type="button" title="Undo (Ctrl+Z)">undo</button>
+      <button id="resizeBtn" class="miniBtn" type="button" title="Expand canvas to current viewport aspect without scaling the drawing">fit</button>
+
+      <button id="downloadBtn" type="button" title="Download PNG" aria-label="Download PNG">
+        <svg version="1.0" xmlns="http://www.w3.org/2000/svg"
+          width="1024.000000pt" height="1280.000000pt" viewBox="0 0 1024.000000 1280.000000"
+          preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
+          <g transform="translate(0.000000,1280.000000) scale(0.100000,-0.100000)"
+            fill="currentColor" stroke="none">
+            <path d="M3230 9905 l0 -2895 -1136 -2 -1135 -3 1072 -1330 c589 -731 1524
+-1891 2077 -2577 553 -687 1008 -1248 1012 -1248 6 0 511 625 3363 4165 l798
+990 -1136 3 -1135 2 0 2895 0 2895 -1890 0 -1890 0 0 -2895z"/>
+            <path d="M0 810 l0 -810 5120 0 5120 0 0 810 0 810 -5120 0 -5120 0 0 -810z"/>
+          </g>
+        </svg>
+      </button>
+    </div>
+
+    <div id="toolsBar">
+      <input id="color" type="color" value="#ffffff" aria-label="Color" title="Color" />
+      <input id="thickness" type="range" min="1" max="50" value="4" aria-label="Thickness" title="Thickness" />
+    </div>
+  </div>
+
+  <div id="canvasWrap">
+    <canvas id="c"></canvas>
+  </div>
+
+  <script>
+    const LZString = (function(){
+      const f = String.fromCharCode;
+      const keyStrUriSafe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-$";
+      const baseReverseDic = Object.create(null);
+
+      function getBaseValue(alphabet, character) {
+        if (!baseReverseDic[alphabet]) {
+          baseReverseDic[alphabet] = Object.create(null);
+          for (let i = 0; i < alphabet.length; i++) baseReverseDic[alphabet][alphabet.charAt(i)] = i;
+        }
+        return baseReverseDic[alphabet][character];
+      }
+
+      function compressToEncodedURIComponent(input) {
+        if (input == null) return "";
+        return _compress(input, 6, function(a){ return keyStrUriSafe.charAt(a); });
+      }
+
+      function decompressFromEncodedURIComponent(input) {
+        if (input == null) return "";
+        if (input === "") return null;
+        input = input.replace(/ /g, "+");
+        return _decompress(input.length, 32, function(index){ return getBaseValue(keyStrUriSafe, input.charAt(index)); });
+      }
+
+      function _compress(uncompressed, bitsPerChar, getCharFromInt) {
+        if (uncompressed == null) return "";
+        let i, value;
+        const context_dictionary = Object.create(null);
+        const context_dictionaryToCreate = Object.create(null);
+        let context_c = "";
+        let context_wc = "";
+        let context_w = "";
+        let context_enlargeIn = 2;
+        let context_dictSize = 3;
+        let context_numBits = 2;
+        let context_data = [];
+        let context_data_val = 0;
+        let context_data_position = 0;
+
+        for (let ii = 0; ii < uncompressed.length; ii++) {
+          context_c = uncompressed.charAt(ii);
+          if (context_dictionary[context_c] == null) {
+            context_dictionary[context_c] = context_dictSize++;
+            context_dictionaryToCreate[context_c] = true;
+          }
+
+          context_wc = context_w + context_c;
+          if (context_dictionary[context_wc] != null) {
+            context_w = context_wc;
+          } else {
+            if (context_dictionaryToCreate[context_w] != null) {
+              if (context_w.charCodeAt(0) < 256) {
+                for (i = 0; i < context_numBits; i++) {
+                  context_data_val = (context_data_val << 1);
+                  if (context_data_position === bitsPerChar - 1) {
+                    context_data_position = 0;
+                    context_data.push(getCharFromInt(context_data_val));
+                    context_data_val = 0;
+                  } else {
+                    context_data_position++;
+                  }
+                }
+                value = context_w.charCodeAt(0);
+                for (i = 0; i < 8; i++) {
+                  context_data_val = (context_data_val << 1) | (value & 1);
+                  if (context_data_position === bitsPerChar - 1) {
+                    context_data_position = 0;
+                    context_data.push(getCharFromInt(context_data_val));
+                    context_data_val = 0;
+                  } else {
+                    context_data_position++;
+                  }
+                  value >>= 1;
+                }
+              } else {
+                value = 1;
+                for (i = 0; i < context_numBits; i++) {
+                  context_data_val = (context_data_val << 1) | value;
+                  if (context_data_position === bitsPerChar - 1) {
+                    context_data_position = 0;
+                    context_data.push(getCharFromInt(context_data_val));
+                    context_data_val = 0;
+                  } else {
+                    context_data_position++;
+                  }
+                  value = 0;
+                }
+                value = context_w.charCodeAt(0);
+                for (i = 0; i < 16; i++) {
+                  context_data_val = (context_data_val << 1) | (value & 1);
+                  if (context_data_position === bitsPerChar - 1) {
+                    context_data_position = 0;
+                    context_data.push(getCharFromInt(context_data_val));
+                    context_data_val = 0;
+                  } else {
+                    context_data_position++;
+                  }
+                  value >>= 1;
+                }
+              }
+              context_enlargeIn--;
+              if (context_enlargeIn === 0) {
+                context_enlargeIn = Math.pow(2, context_numBits);
+                context_numBits++;
+              }
+              delete context_dictionaryToCreate[context_w];
+            } else {
+              value = context_dictionary[context_w];
+              for (i = 0; i < context_numBits; i++) {
+                context_data_val = (context_data_val << 1) | (value & 1);
+                if (context_data_position === bitsPerChar - 1) {
+                  context_data_position = 0;
+                  context_data.push(getCharFromInt(context_data_val));
+                  context_data_val = 0;
+                } else {
+                  context_data_position++;
+                }
+                value >>= 1;
+              }
+            }
+            context_enlargeIn--;
+            if (context_enlargeIn === 0) {
+              context_enlargeIn = Math.pow(2, context_numBits);
+              context_numBits++;
+            }
+            context_dictionary[context_wc] = context_dictSize++;
+            context_w = String(context_c);
+          }
+        }
+
+        if (context_w !== "") {
+          if (context_dictionaryToCreate[context_w] != null) {
+            if (context_w.charCodeAt(0) < 256) {
+              for (i = 0; i < context_numBits; i++) {
+                context_data_val = (context_data_val << 1);
+                if (context_data_position === bitsPerChar - 1) {
+                  context_data_position = 0;
+                  context_data.push(getCharFromInt(context_data_val));
+                  context_data_val = 0;
+                } else {
+                  context_data_position++;
+                }
+              }
+              value = context_w.charCodeAt(0);
+              for (i = 0; i < 8; i++) {
+                context_data_val = (context_data_val << 1) | (value & 1);
+                if (context_data_position === bitsPerChar - 1) {
+                  context_data_position = 0;
+                  context_data.push(getCharFromInt(context_data_val));
+                  context_data_val = 0;
+                } else {
+                  context_data_position++;
+                }
+                value >>= 1;
+              }
+            } else {
+              value = 1;
+              for (i = 0; i < context_numBits; i++) {
+                context_data_val = (context_data_val << 1) | value;
+                if (context_data_position === bitsPerChar - 1) {
+                  context_data_position = 0;
+                  context_data.push(getCharFromInt(context_data_val));
+                  context_data_val = 0;
+                } else {
+                  context_data_position++;
+                }
+                value = 0;
+              }
+              value = context_w.charCodeAt(0);
+              for (i = 0; i < 16; i++) {
+                context_data_val = (context_data_val << 1) | (value & 1);
+                if (context_data_position === bitsPerChar - 1) {
+                  context_data_position = 0;
+                  context_data.push(getCharFromInt(context_data_val));
+                  context_data_val = 0;
+                } else {
+                  context_data_position++;
+                }
+                value >>= 1;
+              }
+            }
+            context_enlargeIn--;
+            if (context_enlargeIn === 0) {
+              context_enlargeIn = Math.pow(2, context_numBits);
+              context_numBits++;
+            }
+            delete context_dictionaryToCreate[context_w];
+          } else {
+            value = context_dictionary[context_w];
+            for (i = 0; i < context_numBits; i++) {
+              context_data_val = (context_data_val << 1) | (value & 1);
+              if (context_data_position === bitsPerChar - 1) {
+                context_data_position = 0;
+                context_data.push(getCharFromInt(context_data_val));
+                context_data_val = 0;
+              } else {
+                context_data_position++;
+              }
+              value >>= 1;
+            }
+          }
+          context_enlargeIn--;
+          if (context_enlargeIn === 0) {
+            context_enlargeIn = Math.pow(2, context_numBits);
+            context_numBits++;
+          }
+        }
+
+        value = 2;
+        for (i = 0; i < context_numBits; i++) {
+          context_data_val = (context_data_val << 1) | (value & 1);
+          if (context_data_position === bitsPerChar - 1) {
+            context_data_position = 0;
+            context_data.push(getCharFromInt(context_data_val));
+            context_data_val = 0;
+          } else {
+            context_data_position++;
+          }
+          value >>= 1;
+        }
+
+        while (true) {
+          context_data_val = (context_data_val << 1);
+          if (context_data_position === bitsPerChar - 1) {
+            context_data.push(getCharFromInt(context_data_val));
+            break;
+          } else context_data_position++;
+        }
+        return context_data.join("");
+      }
+
+      function _decompress(length, resetValue, getNextValue) {
+        const dictionary = [];
+        let next;
+        let enlargeIn = 4;
+        let dictSize = 4;
+        let numBits = 3;
+        let entry = "";
+        let result = [];
+        let i;
+        let w;
+        let bits, resb, maxpower, power;
+
+        const data = { val: getNextValue(0), position: resetValue, index: 1 };
+
+        for (i = 0; i < 3; i++) dictionary[i] = i;
+
+        bits = 0;
+        maxpower = Math.pow(2,2);
+        power = 1;
+        while (power !== maxpower) {
+          resb = data.val & data.position;
+          data.position >>= 1;
+          if (data.position === 0) {
+            data.position = resetValue;
+            data.val = getNextValue(data.index++);
+          }
+          bits |= (resb > 0 ? 1 : 0) * power;
+          power <<= 1;
+        }
+
+        switch (next = bits) {
+          case 0:
+            bits = 0;
+            maxpower = Math.pow(2,8);
+            power = 1;
+            while (power !== maxpower) {
+              resb = data.val & data.position;
+              data.position >>= 1;
+              if (data.position === 0) {
+                data.position = resetValue;
+                data.val = getNextValue(data.index++);
+              }
+              bits |= (resb > 0 ? 1 : 0) * power;
+              power <<= 1;
+            }
+            w = f(bits);
+            break;
+          case 1:
+            bits = 0;
+            maxpower = Math.pow(2,16);
+            power = 1;
+            while (power !== maxpower) {
+              resb = data.val & data.position;
+              data.position >>= 1;
+              if (data.position === 0) {
+                data.position = resetValue;
+                data.val = getNextValue(data.index++);
+              }
+              bits |= (resb > 0 ? 1 : 0) * power;
+              power <<= 1;
+            }
+            w = f(bits);
+            break;
+          case 2:
+            return "";
+        }
+
+        dictionary[3] = w;
+        result.push(w);
+
+        while (true) {
+          if (data.index > length) return "";
+
+          bits = 0;
+          maxpower = Math.pow(2,numBits);
+          power = 1;
+          while (power !== maxpower) {
+            resb = data.val & data.position;
+            data.position >>= 1;
+            if (data.position === 0) {
+              data.position = resetValue;
+              data.val = getNextValue(data.index++);
+            }
+            bits |= (resb > 0 ? 1 : 0) * power;
+            power <<= 1;
+          }
+
+          switch (next = bits) {
+            case 0:
+              bits = 0;
+              maxpower = Math.pow(2,8);
+              power = 1;
+              while (power !== maxpower) {
+                resb = data.val & data.position;
+                data.position >>= 1;
+                if (data.position === 0) {
+                  data.position = resetValue;
+                  data.val = getNextValue(data.index++);
+                }
+                bits |= (resb > 0 ? 1 : 0) * power;
+                power <<= 1;
+              }
+              dictionary[dictSize++] = f(bits);
+              next = dictSize - 1;
+              enlargeIn--;
+              break;
+            case 1:
+              bits = 0;
+              maxpower = Math.pow(2,16);
+              power = 1;
+              while (power !== maxpower) {
+                resb = data.val & data.position;
+                data.position >>= 1;
+                if (data.position === 0) {
+                  data.position = resetValue;
+                  data.val = getNextValue(data.index++);
+                }
+                bits |= (resb > 0 ? 1 : 0) * power;
+                power <<= 1;
+              }
+              dictionary[dictSize++] = f(bits);
+              next = dictSize - 1;
+              enlargeIn--;
+              break;
+            case 2:
+              return result.join("");
+          }
+
+          if (enlargeIn === 0) {
+            enlargeIn = Math.pow(2, numBits);
+            numBits++;
+          }
+
+          if (dictionary[next]) {
+            entry = dictionary[next];
+          } else {
+            if (next === dictSize) entry = w + w.charAt(0);
+            else return null;
+          }
+          result.push(entry);
+
+          dictionary[dictSize++] = w + entry.charAt(0);
+          enlargeIn--;
+
+          w = entry;
+
+          if (enlargeIn === 0) {
+            enlargeIn = Math.pow(2, numBits);
+            numBits++;
+          }
+        }
+      }
+
+      return { compressToEncodedURIComponent, decompressFromEncodedURIComponent };
+    })();
+
+    const COMP_ALGOS = ["brotli","gzip","deflate"];
+
+    const $topbar = document.getElementById("topbar");
+    const $c = document.getElementById("c");
+    const ctx = $c.getContext("2d", { alpha: false });
+
+    const $domainLink = document.getElementById("domainLink");
+    const $resizeBtn = document.getElementById("resizeBtn");
+    const $strokes = document.getElementById("strokes");
+    const $points = document.getElementById("points");
+    const $color = document.getElementById("color");
+    const $thickness = document.getElementById("thickness");
+    const $undoBtn = document.getElementById("undoBtn");
+    const $downloadBtn = document.getElementById("downloadBtn");
+
+    let dpr = 1;
+    let strokes = [];
+    let current = null;
+
+    let baseW = 0;
+    let baseH = 0;
+
+    let isApplyingFromHash = false;
+    let saveTimer = null;
+    let resizeScheduled = false;
+
+    function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+
+    function hexToRgb(hex){
+      const h = hex.replace("#","").trim();
+      if (h.length !== 6) return { r:255, g:255, b:255 };
+      return {
+        r: parseInt(h.slice(0,2),16) || 0,
+        g: parseInt(h.slice(2,4),16) || 0,
+        b: parseInt(h.slice(4,6),16) || 0
+      };
+    }
+
+    function u8ToB64Url(u8) {
+      let bin = "";
+      const chunk = 0x8000;
+      for (let i = 0; i < u8.length; i += chunk) {
+        bin += String.fromCharCode.apply(null, u8.subarray(i, i + chunk));
+      }
+      return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    }
+
+    function b64UrlToU8(b64url) {
+      const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64url.length + 3) % 4);
+      const bin = atob(b64);
+      const u8 = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      return u8;
+    }
+
+    function supportsCompressionStream() {
+      try { return typeof CompressionStream !== "undefined" && typeof DecompressionStream !== "undefined"; }
+      catch (e) { return false; }
+    }
+
+    async function streamCompress(algo, u8) {
+      const cs = new CompressionStream(algo);
+      const blob = new Blob([u8]);
+      const compressed = await new Response(blob.stream().pipeThrough(cs)).arrayBuffer();
+      return new Uint8Array(compressed);
+    }
+
+    async function streamDecompress(algo, u8) {
+      const ds = new DecompressionStream(algo);
+      const blob = new Blob([u8]);
+      const decompressed = await new Response(blob.stream().pipeThrough(ds)).arrayBuffer();
+      return new Uint8Array(decompressed);
+    }
+
+    function updateVvhVar(){
+      const h = window.visualViewport ? Math.round(window.visualViewport.height) : window.innerHeight;
+      document.documentElement.style.setProperty("--vvh", Math.max(0, h) + "px");
+    }
+
+    function updateTopbarHeightVar(){
+      const h = Math.max(0, Math.round($topbar.getBoundingClientRect().height));
+      document.documentElement.style.setProperty("--topbar-real", h + "px");
+    }
+
+    function quantizePoint(u, v){
+      const ru = clamp(u, 0, 1);
+      const rv = clamp(v, 0, 1);
+      return { x: Math.round(ru * 65535), y: Math.round(rv * 65535) };
+    }
+
+    function getCanvasCssSize(){
+      const r = $c.getBoundingClientRect();
+      return { w: Math.max(1, r.width), h: Math.max(1, r.height) };
+    }
+
+    function getFitRect(cssW, cssH){
+      if (!baseW || !baseH) return { x: 0, y: 0, w: cssW, h: cssH, scale: 1 };
+      const s = Math.min(cssW / baseW, cssH / baseH);
+      const w = baseW * s;
+      const h = baseH * s;
+      const x = (cssW - w) * 0.5;
+      const y = (cssH - h) * 0.5;
+      return { x, y, w, h, scale: s };
+    }
+
+    function dequantizePoint(qx, qy, fit){
+      return {
+        x: fit.x + (qx / 65535) * fit.w,
+        y: fit.y + (qy / 65535) * fit.h
+      };
+    }
+
+    function pointerToUV(e){
+      const rect = $c.getBoundingClientRect();
+      const cssW = Math.max(1, rect.width);
+      const cssH = Math.max(1, rect.height);
+      const fit = getFitRect(cssW, cssH);
+
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      const u = (x - fit.x) / fit.w;
+      const v = (y - fit.y) / fit.h;
+
+      return { u, v, fit };
+    }
+
+    function thickToByte(w){
+      const ww = clamp(w, 1, 50);
+      return Math.round(((ww - 1) / 49) * 255);
+    }
+
+    function byteToThick(b){
+      return 1 + (clamp(b,0,255) / 255) * 49;
+    }
+
+    function buildBinaryV2() {
+      const selHex = ($color.value || "#ffffff").toLowerCase();
+      const rgb = hexToRgb(selHex);
+      const selTh = thickToByte(parseFloat($thickness.value || "4"));
+
+      const out = [];
+      const push = v => out.push(v & 255);
+      const pushU16 = v => { push(v & 255); push((v >>> 8) & 255); };
+
+      push(68);
+      push(2);
+
+      pushU16(clamp(Math.round(baseW || 0), 0, 65535));
+      pushU16(clamp(Math.round(baseH || 0), 0, 65535));
+
+      push(rgb.r); push(rgb.g); push(rgb.b);
+      push(selTh);
+
+      pushU16(clamp(strokes.length, 0, 65535));
+
+      for (const s of strokes) {
+        push(s.r); push(s.g); push(s.b);
+        push(s.wb);
+
+        const pc = clamp(s.p.length, 0, 65535);
+        pushU16(pc);
+
+        for (let i = 0; i < pc; i++) {
+          pushU16(s.p[i].x);
+          pushU16(s.p[i].y);
+        }
+      }
+
+      return new Uint8Array(out);
+    }
+
+    function parseBinary(u8) {
+      let i = 0;
+      const need = n => (i + n <= u8.length);
+      const read = () => u8[i++];
+      const readU16 = () => {
+        const lo = u8[i++], hi = u8[i++];
+        return (hi << 8) | lo;
+      };
+
+      if (!need(2)) return { ok:false };
+      const m0 = read();
+      const ver = read();
+      if (m0 !== 68 || ver !== 2) return { ok:false };
+
+      if (!need(4)) return { ok:false };
+      baseW = readU16();
+      baseH = readU16();
+
+      if (!need(4)) return { ok:false };
+      const selR = read(), selG = read(), selB = read();
+      const selWb = read();
+
+      if (!need(2)) return { ok:false };
+      const strokeCount = readU16();
+
+      const parsed = [];
+      for (let s = 0; s < strokeCount; s++) {
+        if (!need(4)) break;
+        const r = read(), g = read(), b = read();
+        const wb = read();
+
+        if (!need(2)) break;
+        const pc = readU16();
+
+        const bytesNeeded = pc * 4;
+        if (!need(bytesNeeded)) break;
+
+        const pts = [];
+        for (let k = 0; k < pc; k++) {
+          const qx = readU16();
+          const qy = readU16();
+          pts.push({ x: qx, y: qy });
+        }
+        parsed.push({ r, g, b, wb, p: pts });
+      }
+
+      strokes = parsed;
+      const to2 = v => v.toString(16).padStart(2,"0");
+      $color.value = "#" + to2(selR) + to2(selG) + to2(selB);
+      $thickness.value = String(Math.round(byteToThick(selWb)));
+
+      return { ok:true };
+    }
+
+    async function encodeToHash(u8) {
+      const candidates = [];
+      candidates.push({ m: "u", d: u8ToB64Url(u8) });
+
+      if (supportsCompressionStream()) {
+        for (const algo of COMP_ALGOS) {
+          try {
+            const cu8 = await streamCompress(algo, u8);
+            const tag = (algo === "brotli") ? "b" : (algo === "gzip") ? "z" : "d";
+            candidates.push({ m: tag, d: u8ToB64Url(cu8) });
+          } catch (e) {}
+        }
+      }
+
+      try {
+        const bin = Array.from(u8, b => String.fromCharCode(b)).join("");
+        const lz = LZString.compressToEncodedURIComponent(bin);
+        candidates.push({ m: "l", d: lz });
+      } catch (e) {}
+
+      let best = candidates[0];
+      for (const c of candidates) {
+        if (c.d.length < best.d.length) best = c;
+      }
+      return "#" + best.m + best.d;
+    }
+
+    async function decodeFromHash(hash) {
+      const h = (hash || "").replace(/^#/, "");
+      if (!h) return null;
+
+      const m = h.charAt(0);
+      const data = h.slice(1);
+
+      if (m === "u") return b64UrlToU8(data);
+
+      if (m === "l") {
+        const bin = LZString.decompressFromEncodedURIComponent(data);
+        if (bin == null) return new Uint8Array(0);
+        const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i) & 255;
+        return u8;
+      }
+
+      if (!supportsCompressionStream()) return null;
+
+      const cu8 = b64UrlToU8(data);
+      if (m === "b") return await streamDecompress("brotli", cu8);
+      if (m === "z") return await streamDecompress("gzip", cu8);
+      if (m === "d") return await streamDecompress("deflate", cu8);
+
+      return null;
+    }
+
+    function updateStats() {
+      let pCount = 0;
+      for (const s of strokes) pCount += s.p.length;
+      $strokes.textContent = "strokes: " + strokes.length;
+      $points.textContent = "points: " + pCount;
+      $undoBtn.disabled = strokes.length === 0;
+    }
+
+    function clearCanvas() {
+      const rect = $c.getBoundingClientRect();
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, rect.width, rect.height);
+      ctx.restore();
+    }
+
+    function applyStrokeStyle(s, fitScale){
+      const scale = (typeof fitScale === "number" && isFinite(fitScale) && fitScale > 0) ? fitScale : 1;
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = "rgb(" + s.r + "," + s.g + "," + s.b + ")";
+      ctx.lineWidth = byteToThick(s.wb) * scale;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+    }
+
+    function drawDotAt(x, y) {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    }
+
+    function redrawAll() {
+      clearCanvas();
+      const { w: cssW, h: cssH } = getCanvasCssSize();
+      const fit = getFitRect(cssW, cssH);
+
+      for (const s of strokes) {
+        if (!s.p || s.p.length === 0) continue;
+
+        applyStrokeStyle(s, fit.scale);
+
+        if (s.p.length === 1) {
+          const p = dequantizePoint(s.p[0].x, s.p[0].y, fit);
+          drawDotAt(p.x, p.y);
+          continue;
+        }
+
+        const p0 = dequantizePoint(s.p[0].x, s.p[0].y, fit);
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+
+        for (let i = 1; i < s.p.length; i++) {
+          const p = dequantizePoint(s.p[i].x, s.p[i].y, fit);
+          ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+      }
+
+      updateStats();
+    }
+
+    function ensureBaseSize() {
+      if (baseW && baseH) return;
+      const sz = getCanvasCssSize();
+      baseW = clamp(Math.round(sz.w), 1, 65535);
+      baseH = clamp(Math.round(sz.h), 1, 65535);
+    }
+
+    function updateVvhAndTopbar(){
+      const h = window.visualViewport ? Math.round(window.visualViewport.height) : window.innerHeight;
+      document.documentElement.style.setProperty("--vvh", Math.max(0, h) + "px");
+      const th = Math.max(0, Math.round($topbar.getBoundingClientRect().height));
+      document.documentElement.style.setProperty("--topbar-real", th + "px");
+    }
+
+    function resizeCanvasNow() {
+      updateVvhAndTopbar();
+
+      const rect = $c.getBoundingClientRect();
+      dpr = Math.max(1, window.devicePixelRatio || 1);
+      $c.width = Math.max(1, Math.floor(rect.width * dpr));
+      $c.height = Math.max(1, Math.floor(rect.height * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      redrawAll();
+    }
+
+    function scheduleResizeCanvas() {
+      if (resizeScheduled) return;
+      resizeScheduled = true;
+
+      requestAnimationFrame(() => {
+        resizeScheduled = false;
+        resizeCanvasNow();
+        requestAnimationFrame(resizeCanvasNow);
+      });
+    }
+
+    function settleResize() {
+      scheduleResizeCanvas();
+      setTimeout(scheduleResizeCanvas, 0);
+      setTimeout(scheduleResizeCanvas, 50);
+      setTimeout(scheduleResizeCanvas, 200);
+      setTimeout(scheduleResizeCanvas, 500);
+    }
+
+    function shiftAndRequantizePoints(oldW, oldH, newW, newH, offX, offY) {
+      for (const st of strokes) {
+        for (const p of st.p) {
+          const uOld = p.x / 65535;
+          const vOld = p.y / 65535;
+
+          const xOld = uOld * oldW;
+          const yOld = vOld * oldH;
+
+          const xNew = xOld + offX;
+          const yNew = yOld + offY;
+
+          const uNew = xNew / newW;
+          const vNew = yNew / newH;
+
+          const q = quantizePoint(uNew, vNew);
+          p.x = q.x;
+          p.y = q.y;
+        }
+      }
+    }
+
+    function fitCanvasToViewportNoScale() {
+      updateVvhAndTopbar();
+      const sz = getCanvasCssSize();
+
+      const cssW = Math.max(1, Math.round(sz.w));
+      const cssH = Math.max(1, Math.round(sz.h));
+
+      if (!baseW || !baseH) {
+        baseW = clamp(cssW, 1, 65535);
+        baseH = clamp(cssH, 1, 65535);
+        saveToUrlDebounced();
+        settleResize();
+        return;
+      }
+
+      const oldW = baseW;
+      const oldH = baseH;
+
+      const viewportAR = cssW / cssH;
+      const baseAR = oldW / oldH;
+
+      let newW = oldW;
+      let newH = oldH;
+      let offX = 0;
+      let offY = 0;
+
+      if (viewportAR > baseAR) {
+        newW = clamp(Math.round(oldH * viewportAR), 1, 65535);
+        newH = oldH;
+        offX = (newW - oldW) * 0.5;
+      } else {
+        newW = oldW;
+        newH = clamp(Math.round(oldW / viewportAR), 1, 65535);
+        offY = (newH - oldH) * 0.5;
+      }
+
+      if (newW === oldW && newH === oldH) {
+        settleResize();
+        return;
+      }
+
+      shiftAndRequantizePoints(oldW, oldH, newW, newH, offX, offY);
+      baseW = newW;
+      baseH = newH;
+
+      saveToUrlDebounced();
+      settleResize();
+    }
+
+    function beginStroke(e) {
+      const { u, v } = pointerToUV(e);
+      ensureBaseSize();
+
+      const rgb = hexToRgb(($color.value || "#ffffff").toLowerCase());
+      const wb = thickToByte(parseFloat($thickness.value || "4"));
+
+      current = { r: rgb.r, g: rgb.g, b: rgb.b, wb, p: [] };
+
+      const q = quantizePoint(u, v);
+      current.p.push(q);
+      strokes.push(current);
+
+      try { $c.setPointerCapture(e.pointerId); } catch (err) {}
+
+      drawIncremental(true);
+      saveToUrlDebounced();
+      updateStats();
+    }
+
+    function addPoint(e) {
+      if (!current) return;
+
+      const { u, v, fit } = pointerToUV(e);
+      const q = quantizePoint(u, v);
+      const last = current.p[current.p.length - 1];
+      if (!last) { current.p.push(q); drawIncremental(false); return; }
+
+      const dx = (q.x - last.x) / 65535;
+      const dy = (q.y - last.y) / 65535;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+
+      const minStep = 2 / Math.max(200, Math.min(fit.w, fit.h));
+      if (dist < minStep) return;
+
+      current.p.push(q);
+      drawIncremental(false);
+      saveToUrlDebounced();
+      updateStats();
+    }
+
+    function endStroke(e) {
+      if (!current) return;
+      try { $c.releasePointerCapture(e.pointerId); } catch (err) {}
+      current = null;
+      saveToUrlDebounced();
+    }
+
+    function drawIncremental(isFirst) {
+      const s = strokes[strokes.length - 1];
+      if (!s || !s.p.length) return;
+
+      const { w: cssW, h: cssH } = getCanvasCssSize();
+      const fit = getFitRect(cssW, cssH);
+
+      applyStrokeStyle(s, fit.scale);
+
+      if (isFirst) {
+        const p = dequantizePoint(s.p[0].x, s.p[0].y, fit);
+        drawDotAt(p.x, p.y);
+        return;
+      }
+
+      if (s.p.length < 2) return;
+
+      const a = s.p[s.p.length - 2];
+      const b = s.p[s.p.length - 1];
+      const pa = dequantizePoint(a.x, a.y, fit);
+      const pb = dequantizePoint(b.x, b.y, fit);
+
+      ctx.beginPath();
+      ctx.moveTo(pa.x, pa.y);
+      ctx.lineTo(pb.x, pb.y);
+      ctx.stroke();
+    }
+
+    async function saveToUrlDebounced() {
+      if (isApplyingFromHash) return;
+      if (saveTimer) clearTimeout(saveTimer);
+
+      saveTimer = setTimeout(async () => {
+        const bin = buildBinaryV2();
+        const newHash = await encodeToHash(bin);
+        if (location.hash !== newHash) history.replaceState(null, "", newHash);
+      }, 250);
+    }
+
+    async function applyFromHash() {
+      isApplyingFromHash = true;
+      try {
+        const u8 = await decodeFromHash(location.hash);
+        if (u8 && u8.length) {
+          const res = parseBinary(u8);
+          if (!res.ok) {
+            strokes = [];
+            baseW = 0; baseH = 0;
+          }
+        } else {
+          strokes = [];
+          baseW = 0; baseH = 0;
+        }
+        settleResize();
+      } finally {
+        isApplyingFromHash = false;
+      }
+    }
+
+    function undo() {
+      if (!strokes.length) return;
+      strokes.pop();
+      redrawAll();
+      saveToUrlDebounced();
+    }
+
+    function downloadCanvasPng() {
+      const base = location.hostname ? location.hostname : "local";
+      const now = new Date();
+      const pad2 = (n) => String(n).padStart(2, "0");
+      const date =
+      String(now.getFullYear()) +
+      pad2(now.getMonth() + 1) +
+      pad2(now.getDate()) +
+      "_" +
+      pad2(now.getHours()) +
+      pad2(now.getMinutes()) +
+      pad2(now.getSeconds());
+      const filename = base + "-" + date + ".png";
+
+      if ($c.toBlob) {
+        $c.toBlob((blob) => {
+          if (!blob) return;
+
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 250);
+        }, "image/png");
+        return;
+      }
+
+      const url = $c.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    function init() {
+      const host = location.hostname ? location.hostname : "local";
+      const baseUrl = location.origin + location.pathname;
+
+      $domainLink.textContent = host;
+      $domainLink.href = baseUrl;
+
+      const ro = new ResizeObserver(() => settleResize());
+      ro.observe($topbar);
+
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", settleResize);
+        window.visualViewport.addEventListener("scroll", settleResize);
+      }
+
+      window.addEventListener("resize", settleResize);
+      window.addEventListener("orientationchange", settleResize);
+
+      $resizeBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        fitCanvasToViewportNoScale();
+      });
+
+      $downloadBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        downloadCanvasPng();
+      });
+
+      $c.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        if (e.button !== undefined && e.button !== 0) return;
+        beginStroke(e);
+      }, { passive:false });
+
+      $c.addEventListener("pointermove", (e) => {
+        e.preventDefault();
+        addPoint(e);
+      }, { passive:false });
+
+      $c.addEventListener("pointerup", (e) => {
+        e.preventDefault();
+        endStroke(e);
+      }, { passive:false });
+
+      $c.addEventListener("pointercancel", (e) => {
+        e.preventDefault();
+        endStroke(e);
+      }, { passive:false });
+
+      $undoBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        undo();
+      });
+
+      window.addEventListener("keydown", (e) => {
+        const k = (e.key || "").toLowerCase();
+        const isUndo = (k === "z") && (e.ctrlKey || e.metaKey) && !e.shiftKey;
+        if (isUndo) {
+          e.preventDefault();
+          undo();
+        }
+      });
+
+      $color.addEventListener("input", () => saveToUrlDebounced());
+      $thickness.addEventListener("input", () => saveToUrlDebounced());
+
+      window.addEventListener("hashchange", () => applyFromHash());
+
+      applyFromHash();
+      updateStats();
+      settleResize();
+    }
+
+    init();
+  </script>
+</body>
+</html>
