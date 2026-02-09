@@ -249,6 +249,7 @@
   </div>
 
   <script>
+    /* ── LZ-String (URI-safe subset) ────────────────────────────── */
     const LZString = (function(){
       const f = String.fromCharCode;
       const keyStrUriSafe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-$";
@@ -637,7 +638,65 @@
       return { compressToEncodedURIComponent, decompressFromEncodedURIComponent };
     })();
 
+    /* ── Varint / zigzag helpers ────────────────────────────────── */
+
+    // Zigzag encode: signed → unsigned  (0→0, -1→1, 1→2, -2→3, …)
+    function zigzagEncode(n) { return (n << 1) ^ (n >> 31); }
+    function zigzagDecode(n) { return (n >>> 1) ^ -(n & 1); }
+
+    // Write unsigned varint into array, return bytes written
+    function writeVarint(out, val) {
+      let v = val >>> 0; // treat as unsigned 32-bit
+      let count = 0;
+      while (v >= 0x80) {
+        out.push((v & 0x7F) | 0x80);
+        v >>>= 7;
+        count++;
+      }
+      out.push(v & 0x7F);
+      return count + 1;
+    }
+
+    // Read unsigned varint from Uint8Array at position i, return { value, bytesRead }
+    function readVarint(u8, i) {
+      let result = 0;
+      let shift = 0;
+      let b;
+      let bytesRead = 0;
+      do {
+        if (i >= u8.length) return { value: 0, bytesRead };
+        b = u8[i++];
+        result |= (b & 0x7F) << shift;
+        shift += 7;
+        bytesRead++;
+      } while (b & 0x80);
+      return { value: result >>> 0, bytesRead };
+    }
+
+    /* ── Compression streams ────────────────────────────────────── */
+
     const COMP_ALGOS = ["brotli","gzip","deflate"];
+
+    function supportsCompressionStream() {
+      try { return typeof CompressionStream !== "undefined" && typeof DecompressionStream !== "undefined"; }
+      catch (e) { return false; }
+    }
+
+    async function streamCompress(algo, u8) {
+      const cs = new CompressionStream(algo);
+      const blob = new Blob([u8]);
+      const compressed = await new Response(blob.stream().pipeThrough(cs)).arrayBuffer();
+      return new Uint8Array(compressed);
+    }
+
+    async function streamDecompress(algo, u8) {
+      const ds = new DecompressionStream(algo);
+      const blob = new Blob([u8]);
+      const decompressed = await new Response(blob.stream().pipeThrough(ds)).arrayBuffer();
+      return new Uint8Array(decompressed);
+    }
+
+    /* ── DOM refs ───────────────────────────────────────────────── */
 
     const $topbar = document.getElementById("topbar");
     const $c = document.getElementById("c");
@@ -662,6 +721,8 @@
     let isApplyingFromHash = false;
     let saveTimer = null;
     let resizeScheduled = false;
+
+    /* ── Utility ────────────────────────────────────────────────── */
 
     function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
 
@@ -690,25 +751,6 @@
       const u8 = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
       return u8;
-    }
-
-    function supportsCompressionStream() {
-      try { return typeof CompressionStream !== "undefined" && typeof DecompressionStream !== "undefined"; }
-      catch (e) { return false; }
-    }
-
-    async function streamCompress(algo, u8) {
-      const cs = new CompressionStream(algo);
-      const blob = new Blob([u8]);
-      const compressed = await new Response(blob.stream().pipeThrough(cs)).arrayBuffer();
-      return new Uint8Array(compressed);
-    }
-
-    async function streamDecompress(algo, u8) {
-      const ds = new DecompressionStream(algo);
-      const blob = new Blob([u8]);
-      const decompressed = await new Response(blob.stream().pipeThrough(ds)).arrayBuffer();
-      return new Uint8Array(decompressed);
     }
 
     function updateVvhVar(){
@@ -773,7 +815,20 @@
       return 1 + (clamp(b,0,255) / 255) * 49;
     }
 
-    function buildBinaryV2() {
+    /* ── V3 binary format (delta-encoded, zigzag varints) ──────── */
+    // Header:  'D' (0x44)  version=3
+    //          baseW (u16le)  baseH (u16le)
+    //          selR selG selB selTh (4 bytes)
+    //          strokeCount (varint)
+    // Per stroke:
+    //   flags (1 byte):  bit0 = sameColor as prev, bit1 = sameThickness as prev
+    //   [r g b]  — only if !sameColor
+    //   [wb]     — only if !sameThickness
+    //   pointCount (varint)
+    //   first point: x (u16le), y (u16le)  — absolute
+    //   subsequent:  zigzag-varint(dx), zigzag-varint(dy)  — delta from previous
+
+    function buildBinaryV3() {
       const selHex = ($color.value || "#ffffff").toLowerCase();
       const rgb = hexToRgb(selHex);
       const selTh = thickToByte(parseFloat($thickness.value || "4"));
@@ -782,8 +837,9 @@
       const push = v => out.push(v & 255);
       const pushU16 = v => { push(v & 255); push((v >>> 8) & 255); };
 
-      push(68);
-      push(2);
+      // Header
+      push(0x44); // 'D'
+      push(3);    // version 3
 
       pushU16(clamp(Math.round(baseW || 0), 0, 65535));
       pushU16(clamp(Math.round(baseH || 0), 0, 65535));
@@ -791,47 +847,153 @@
       push(rgb.r); push(rgb.g); push(rgb.b);
       push(selTh);
 
-      pushU16(clamp(strokes.length, 0, 65535));
+      writeVarint(out, strokes.length);
+
+      let prevR = -1, prevG = -1, prevB = -1, prevWb = -1;
 
       for (const s of strokes) {
-        push(s.r); push(s.g); push(s.b);
-        push(s.wb);
+        const sameColor = (s.r === prevR && s.g === prevG && s.b === prevB);
+        const sameThick = (s.wb === prevWb);
+        let flags = 0;
+        if (sameColor) flags |= 1;
+        if (sameThick) flags |= 2;
+        push(flags);
+
+        if (!sameColor) {
+          push(s.r); push(s.g); push(s.b);
+        }
+        if (!sameThick) {
+          push(s.wb);
+        }
+
+        prevR = s.r; prevG = s.g; prevB = s.b; prevWb = s.wb;
 
         const pc = clamp(s.p.length, 0, 65535);
-        pushU16(pc);
+        writeVarint(out, pc);
 
-        for (let i = 0; i < pc; i++) {
-          pushU16(s.p[i].x);
-          pushU16(s.p[i].y);
+        if (pc > 0) {
+          // First point: absolute u16
+          pushU16(s.p[0].x);
+          pushU16(s.p[0].y);
+
+          // Remaining points: zigzag-varint deltas
+          let lastX = s.p[0].x;
+          let lastY = s.p[0].y;
+          for (let i = 1; i < pc; i++) {
+            const dx = s.p[i].x - lastX;
+            const dy = s.p[i].y - lastY;
+            writeVarint(out, zigzagEncode(dx));
+            writeVarint(out, zigzagEncode(dy));
+            lastX = s.p[i].x;
+            lastY = s.p[i].y;
+          }
         }
       }
 
       return new Uint8Array(out);
     }
 
-    function parseBinary(u8) {
+    function parseBinaryV3(u8) {
       let i = 0;
       const need = n => (i + n <= u8.length);
       const read = () => u8[i++];
-      const readU16 = () => {
-        const lo = u8[i++], hi = u8[i++];
-        return (hi << 8) | lo;
+      const readU16 = () => { const lo = u8[i++], hi = u8[i++]; return (hi << 8) | lo; };
+      const readVarInt = () => {
+        const r = readVarint(u8, i);
+        i += r.bytesRead;
+        return r.value;
       };
 
-      if (!need(2)) return { ok:false };
+      if (!need(2)) return { ok: false };
       const m0 = read();
       const ver = read();
-      if (m0 !== 68 || ver !== 2) return { ok:false };
+      if (m0 !== 0x44 || ver !== 3) return { ok: false };
 
-      if (!need(4)) return { ok:false };
+      if (!need(4)) return { ok: false };
       baseW = readU16();
       baseH = readU16();
 
-      if (!need(4)) return { ok:false };
+      if (!need(4)) return { ok: false };
       const selR = read(), selG = read(), selB = read();
       const selWb = read();
 
-      if (!need(2)) return { ok:false };
+      const strokeCount = readVarInt();
+
+      const parsed = [];
+      let prevR = 0, prevG = 0, prevB = 0, prevWb = 0;
+
+      for (let s = 0; s < strokeCount; s++) {
+        if (!need(1)) break;
+        const flags = read();
+        const sameColor = !!(flags & 1);
+        const sameThick = !!(flags & 2);
+
+        let r, g, b, wb;
+        if (sameColor) {
+          r = prevR; g = prevG; b = prevB;
+        } else {
+          if (!need(3)) break;
+          r = read(); g = read(); b = read();
+        }
+        if (sameThick) {
+          wb = prevWb;
+        } else {
+          if (!need(1)) break;
+          wb = read();
+        }
+        prevR = r; prevG = g; prevB = b; prevWb = wb;
+
+        const pc = readVarInt();
+        const pts = [];
+
+        if (pc > 0) {
+          if (!need(4)) break;
+          let lastX = readU16();
+          let lastY = readU16();
+          pts.push({ x: lastX, y: lastY });
+
+          for (let k = 1; k < pc; k++) {
+            const dx = zigzagDecode(readVarInt());
+            const dy = zigzagDecode(readVarInt());
+            lastX = clamp(lastX + dx, 0, 65535);
+            lastY = clamp(lastY + dy, 0, 65535);
+            pts.push({ x: lastX, y: lastY });
+          }
+        }
+
+        parsed.push({ r, g, b, wb, p: pts });
+      }
+
+      strokes = parsed;
+      const to2 = v => v.toString(16).padStart(2, "0");
+      $color.value = "#" + to2(selR) + to2(selG) + to2(selB);
+      $thickness.value = String(Math.round(byteToThick(selWb)));
+
+      return { ok: true };
+    }
+
+    /* ── V2 binary format (legacy, read-only for backward compat) ─ */
+
+    function parseBinaryV2(u8) {
+      let i = 0;
+      const need = n => (i + n <= u8.length);
+      const read = () => u8[i++];
+      const readU16 = () => { const lo = u8[i++], hi = u8[i++]; return (hi << 8) | lo; };
+
+      if (!need(2)) return { ok: false };
+      const m0 = read();
+      const ver = read();
+      if (m0 !== 68 || ver !== 2) return { ok: false };
+
+      if (!need(4)) return { ok: false };
+      baseW = readU16();
+      baseH = readU16();
+
+      if (!need(4)) return { ok: false };
+      const selR = read(), selG = read(), selB = read();
+      const selWb = read();
+
+      if (!need(2)) return { ok: false };
       const strokeCount = readU16();
 
       const parsed = [];
@@ -856,12 +1018,23 @@
       }
 
       strokes = parsed;
-      const to2 = v => v.toString(16).padStart(2,"0");
+      const to2 = v => v.toString(16).padStart(2, "0");
       $color.value = "#" + to2(selR) + to2(selG) + to2(selB);
       $thickness.value = String(Math.round(byteToThick(selWb)));
 
-      return { ok:true };
+      return { ok: true };
     }
+
+    /* ── Unified parse: try V3, then fall back to V2 ───────────── */
+
+    function parseBinary(u8) {
+      if (u8.length >= 2 && u8[0] === 0x44 && u8[1] === 3) {
+        return parseBinaryV3(u8);
+      }
+      return parseBinaryV2(u8);
+    }
+
+    /* ── Hash encode / decode ──────────────────────────────────── */
 
     async function encodeToHash(u8) {
       const candidates = [];
@@ -916,6 +1089,8 @@
 
       return null;
     }
+
+    /* ── Drawing / canvas ──────────────────────────────────────── */
 
     function updateStats() {
       let pCount = 0;
@@ -1097,6 +1272,8 @@
       settleResize();
     }
 
+    /* ── Stroke input ──────────────────────────────────────────── */
+
     function beginStroke(e) {
       const { u, v } = pointerToUV(e);
       ensureBaseSize();
@@ -1173,12 +1350,14 @@
       ctx.stroke();
     }
 
+    /* ── Save / load ───────────────────────────────────────────── */
+
     async function saveToUrlDebounced() {
       if (isApplyingFromHash) return;
       if (saveTimer) clearTimeout(saveTimer);
 
       saveTimer = setTimeout(async () => {
-        const bin = buildBinaryV2();
+        const bin = buildBinaryV3();
         const newHash = await encodeToHash(bin);
         if (location.hash !== newHash) history.replaceState(null, "", newHash);
       }, 250);
@@ -1216,19 +1395,18 @@
       const now = new Date();
       const pad2 = (n) => String(n).padStart(2, "0");
       const date =
-      String(now.getFullYear()) +
-      pad2(now.getMonth() + 1) +
-      pad2(now.getDate()) +
-      "_" +
-      pad2(now.getHours()) +
-      pad2(now.getMinutes()) +
-      pad2(now.getSeconds());
+        String(now.getFullYear()) +
+        pad2(now.getMonth() + 1) +
+        pad2(now.getDate()) +
+        "_" +
+        pad2(now.getHours()) +
+        pad2(now.getMinutes()) +
+        pad2(now.getSeconds());
       const filename = base + "-" + date + ".png";
 
       if ($c.toBlob) {
         $c.toBlob((blob) => {
           if (!blob) return;
-
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = url;
@@ -1249,6 +1427,8 @@
       a.click();
       a.remove();
     }
+
+    /* ── Init ──────────────────────────────────────────────────── */
 
     function init() {
       const host = location.hostname ? location.hostname : "local";
