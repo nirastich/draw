@@ -1040,16 +1040,6 @@
       const candidates = [];
       candidates.push({ m: "u", d: u8ToB64Url(u8) });
 
-      if (supportsCompressionStream()) {
-        for (const algo of COMP_ALGOS) {
-          try {
-            const cu8 = await streamCompress(algo, u8);
-            const tag = (algo === "brotli") ? "b" : (algo === "gzip") ? "z" : "d";
-            candidates.push({ m: tag, d: u8ToB64Url(cu8) });
-          } catch (e) {}
-        }
-      }
-
       try {
         const bin = Array.from(u8, b => String.fromCharCode(b)).join("");
         const lz = LZString.compressToEncodedURIComponent(bin);
